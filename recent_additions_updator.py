@@ -16,10 +16,13 @@ files size.
 
 The format of the datafile is as thus;
 
-<parameter> = <value>
-<partial shasum> <size> <time> <file>
-COLLISION <linkname> <r>
-LINK <partial shasum> <size> <linkname>
+    <parameter> = <value>
+    <hash> <time> <file>
+    COLLISION <linkname> <r>
+    LINK <hash> <linkname>
+
+where hash is:
+    <partial shasum> <size>
 
 where parameters can be:
  * scan    - the directory to scan (this paramter can be used multiple times).
@@ -30,7 +33,12 @@ where parameters can be:
                 directory.
 """
 
-#:: TODO handle renamed files::
+# :: TODO add main() ::
+# :: TODO 3 startup modes. file time = now, file time = mtime, daemonize::
+# :: TODO Remove dead links::
+# :: TODO refactor code so there is a new_file and modified_file methods::
+# :: TODO refactor so checking+linking methods are in their own class (simplifying common variables)::
+# :: TODO add inotify support, checking file modified and file added, file removed::
 
 import binascii
 import hashlib
@@ -40,12 +48,73 @@ import os
 import re
 
 INT_PARAMETERS = ['minsize', 'shaclip']
+MULTI_PARAMETERS = ['scan']
+
+class Hash:
+    """ A hash contains both the size and a partial shasum of a file."""
+    shaclip = 0
+
+    @staticmethod
+    def set_shaclip(clip):
+        """ Sets the number of bytes read from a file before it is clipped."""
+        Hash.shaclip = clip
+
+    @staticmethod
+    def FromFile(filename):
+        """ Constructs a new hash from a filename."""
+        h = Hash()
+        h._file(filename)
+        return h
+
+    @staticmethod
+    def FromString(str):
+        """ Constructs a new hash file from a string.
+
+            The format of the string is as this <partial shasum> <size>
+        """
+        h = Hash()
+        h._read_string(str)
+        return h
+
+    def _file(self, filename):
+        shasum = partial_shasum(filename, Hash.shaclip)
+        self.size = os.path.getsize(filename)
+        self.partial_shasum_hex = shasum.hexdigest()
+        self.partial_shasum = shasum.digest()
+
+    def _read_string(self, str):
+        m = re.match("([0-9A-F]+ +[0-9]+) +([0-9]+)", str)
+        self.partial_shasum_hex = m.group(1) 
+        self.partial_shasum = binascii.unhexlify(m.group(1))
+        self.size = int(m.group(2)) 
+
+    def __str__(self):
+        """ Converts a hash object to a string.
+            
+            FORMAT: <partial shasum> <size>
+        """
+        return "%s %d" % (self.partial_shasum_hex, self.size)
+
+    def __eq__(self, other):
+        return (self.partial_shasum, self.size) == (other.partial_shasum, other.size)
+
+    def __cmp__(self, other):
+        if self.partial_shasum == other.partial_shasum:
+            return self.size - other.size
+        else:
+            return self.partial_shasum.__cmp__(other.partial_shasum)
+
+    def __hash__(self):
+        return hash((self.partial_shasum, self.size))
+
+
 
 class Datafile:
     """ Storage class for the datafile."""
   
     # ::TODO improve config access ::
  
+    # ::TODO Remove::
     @staticmethod
     def New(datafilename, sources, target, minsize, shaclip):
         """ Creates a new datafile with the given configuration.
@@ -80,7 +149,9 @@ class Datafile:
     def __load(self, datafilename):
         # Load the datafile into memory.
         self.datafilename = datafilename
-        self.config = { 'scan': [] }
+        self.config = dict()
+        for m in MULTI_PARAMETERS:
+            self.config[m] = set()
         self.collisions = dict()
         self.filenames = set()
         self.hash_links = dict() # mapping of hashes to a tupple of (date, set of links).
@@ -92,13 +163,13 @@ class Datafile:
                 # config parameter
                 # format is: <key> = <value>
                 key = m.group(1)
-                value = m.group(2)
+                value = m.group(2).strip()
 
-                if key == 'scan':
-                    self.config['scan'].append(value)
+                if key in MULTI_PARAMETERS:
+                    self.config[key].add(value)
+                elif key in INT_PARAMETERS:
+                    self.config[key] = int(value)
                 else:
-                    if key in INT_PARAMETERS:
-                        value = int(value)
                     self.config[key] = value
             elif line.startswith("COLLISION"):
                 # Collision match record.
@@ -108,23 +179,21 @@ class Datafile:
                 r = int(m.group(2))
                 self.collisions[linkname] = r
             elif line.startswith("LINK"):
-                # Collision match record.
-                # format is: <partial shasum> <size> <filename>
-                m = re.match("LINK +([0-9A-Fa-f]?) +([0-9]+) +(.+)", line)
-                partial_shasum = binascii.unhexlify(m.group(1))
-                size = int(m.group(2))
-                file = m.group(3)
-                self.hash_links[(size, partial_shasum)].append(file)
+                # Link record.
+                # format is: LINK <hash> <link>
+                m = re.match("LINK +([0-9A-F]+ ([0-9]+) +(.+)", line)
+                h = Hash.FromString(m.group(1))
+                link = m.group(2)
+                self.hash_links[h].append(link)
             else:
                 # file record 
-                # format is: <partial shasum> <size> <time> <filename>
-                m = re.match("([0-9A-Fa-f]?) +([0-9]+) +([0-9]+) +(.+)", line)
-                partial_shasum = binascii.unhexlify(m.group(1))
-                size = int(m.group(2))
-                t = int(m.group(3))
-                file = m.group(4) 
+                # format is: <hash> <time> <filename>
+                m = re.match("([0-9A-F]+ [0-9]+) +([0-9]+) +(.+)", line)
+                h = Hash.FromString(m.group(1))
+                t = int(m.group(2))
+                file = m.group(3) 
                 self.filenames.add(file)
-                self.hash_links[(size, partial_shasum)] = (t, set())
+                self.hash_links[h] = (t, set())
         fp.close()
         self.datafilefp = open(datafilename, 'a')
 
@@ -136,44 +205,40 @@ class Datafile:
         return filename not in self.filenames
 
 
-    def hash_exists(self, size, partial_shasum):
-        """ Returns true if the given size and partial shasum exist in the
-            datafile.
+    def hash_exists(self, h):
+        """ Returns true if the given hash shasum exist in the datafile.
         """
-        return (size, partial_shasum.digest()) in self.hash_links
+        return h in self.hash_links
 
 
-    def append_filehash(self, filename, size, partial_shasum, t):
-        """ Appends the filename, file size and partial shasum of
-            a file into the datafile.
+    def append_filehash(self, filename, h, t):
+        """ Appends the filename, hash and time of a file into the datafile.
         """
         # add to maps
         self.filenames.add(filename)
         intt = int(time.mktime(t))
         # reset links (as the links either do not exist or have been deleted)
-        self.hash_links[(size, partial_shasum.digest())] = (intt, set())
+        self.hash_links[h] = (intt, set())
         # append to datafile
-        self.datafilefp.write("%s %d %d %s\n" % (
-                partial_shasum.hexdigest(), size, intt, filename))
+        self.datafilefp.write("%s %d %s\n" % (h, intt, filename))
 
 
-    def add_link(self, size, partial_shasum, linkname):
+    def add_link(self, hash, linkname):
         """ Adds the linkname (with a hash) to the datafile."""
-        t, links = self.hash_links[(size, partial_shasum.digest())]
+        t, links = self.hash_links[hash]
         links.add(linkname)
-        self.datafilefp.write("LINK %s %d %s\n" % (
-                partial_shasum.hexdigest(), size, linkname))
+        self.datafilefp.write("LINK %s %s\n" % (hash, linkname))
 
 
-    def get_links(self, size, partial_shasum):
-        """ Returns a set of links for a given size and partial_shasum."""
-        t, links = self.hash_links[(size, partial_shasum.digest())]
+    def get_links(self, hash):
+        """ Returns a set of links for a given hash."""
+        t, links = self.hash_links[hash]
         return links
 
 
-    def get_time(self, size, partial_shasum):
-        """ Returns the time the hash was added to the datafile."""
-        t, links = self.hash_links[(size, partial_shasum.digest())]
+    def get_time(self, hash):
+        """ Returns the time a given hash was added to the datafile."""
+        t, links = self.hash_links[hash]
         return time.localtime(t)
         
 
@@ -313,25 +378,24 @@ def check_file(datafile, filename, t=None):
     filename = os.path.abspath(filename)
     
     if datafile.filename_is_unique(filename):
-        # The file may be new, check its hash (size + partal shasum)
-        shasum = partial_shasum(filename, datafile.config['shaclip'])
-        size = os.path.getsize(filename)
-        if datafile.hash_exists(size, shasum):
+        # The file may be new, check its hash 
+        h = Hash.FromFile(filename)
+        if datafile.hash_exists(h):
             # The file has been moved or renamed.
             # Remove the old links.
-            links = datafile.get_links(size, shasum)
-            for link in datafile.get_links(size, shasum):
+            links = datafile.get_links(h)
+            for link in datafile.get_links(h):
                 if os.path.exists(link):
                     os.remove(link)
                 # get the time of the origional link, otherwise
                 # it may end up as today
-                t = datafile.get_time(size, shasum)
-        datafile.append_filehash(filename, size, shasum, t)
-        if size > datafile.config['minsize']:
+                t = datafile.get_time(h)
+        datafile.append_filehash(filename, h, t)
+        if h.size > datafile.config['minsize']:
             # ::CHECK if the format can be moved to the config directory::
             for format in ['month/%Y-%m', 'week/%Y-%U', 'day/%Y-%m-%d']:
                 linkname = create_link(datafile, filename, format, t)
-                datafile.add_link(size, shasum, linkname) 
+                datafile.add_link(h, linkname) 
 
 
 def create_initial_directory(datafilename, sources, target, minsize, shaclip):
@@ -358,6 +422,7 @@ def create_initial_directory(datafilename, sources, target, minsize, shaclip):
              mtime = time.localtime(os.path.getmtime(f))
              check_file(datafile, f, mtime)
 
+Hash.set_shaclip(1024*1024*10)
 create_initial_directory('datafile.txt', ['Video'], 'recent', 1024*512, 1024*1024*10)
 
 #d = Datafile.Load('datafile.txt')
