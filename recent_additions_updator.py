@@ -18,6 +18,8 @@ The format of the datafile is as thus;
 
 <parameter> = <value>
 <partial shasum> <size> <file>
+COLLISION <linkname> <r>
+LINK <partial shasum> <size> <linkname>
 
 where parameters can be:
  * scan    - the directory to scan (this paramter can be used multiple times).
@@ -28,8 +30,11 @@ where parameters can be:
                 directory.
 """
 
+#:: TODO handle renamed files::
+
 import binascii
 import hashlib
+import string
 import time
 import os
 import re
@@ -76,12 +81,12 @@ class Datafile:
         # Load the datafile into memory.
         self.datafilename = datafilename
         self.config = { 'scan': [] }
+        self.collisions = dict()
         self.filenames = set()
         self.size_and_shasums = set()
 
         fp = open(datafilename, 'r')
-        line = fp.readline()
-        while line:
+        for line in fp:
             m = re.match("(.+?) *= *(.+)", line)
             if m:
                 # config parameter
@@ -95,6 +100,12 @@ class Datafile:
                     if key in INT_PARAMETERS:
                         value = int(value)
                     self.config[key] = value
+            elif line.startswith("COLLISION"):
+                # Collision match record.
+                m = re.match("COLLISION +(.+) ([0-9]+)", line)
+                linkname = m.group(1)
+                r = int(m.group(2))
+                self.collisions[linkname] = r
             else:
                 # file record 
                 # format is: <partial shasum> <size> <filename>
@@ -107,7 +118,6 @@ class Datafile:
                 file = line[ss+1:] 
                 self.filenames.add(file)
                 self.size_and_shasums.add((size, partial_shasum)) 
-            line = fp.readline()
         fp.close()
         self.datafilefp = open(datafilename, 'a')
 
@@ -137,9 +147,23 @@ class Datafile:
         self.datafilefp.write("%s %d %s\n" % (
                 partial_shasum.hexdigest(), size, filename))
 
+    def get_linkname_collision(self, linkname):
+        """ Returns the r value of a linkname collision.
+
+            If the linkname has no collisions, then 0 is returned.
+        """
+        if linkname in self.collisions:
+            return self.collisions[linkname]
+        else:
+            return 0
+
+    def set_linkname_collision(self, linkname, r):
+        """ Sets the r value of a given linkname collision in the datafile."""
+        self.datafilefp.write("COLLISION %s %d\n" %(linkname, r))
+        self.collisions[linkname] = r
     
     def __del__(self):
-        # Cleanup the datafilefp
+        # Close the datafile
         self.datafilefp.close()
 
             
@@ -176,7 +200,23 @@ def locate(root):
             yield os.path.join(path, basename)
 
 
+def concat_parent_directories(filename, r, c=' - '):
+    """ Concatinates r parent directories of the given filename into the
+        basename of filename.
 
+        ie, filename="/export/Video/TV-Show/Episode 01.avi" n=2 c=" - " 
+        returns "TV-Show - Episode 01.avi"
+    """
+    l = []
+    # add extra one for basename.
+    for i in xrange(r+1):
+        head, tail = os.path.split(filename)
+        filename = head
+        l.append(tail)
+    l.reverse()
+    return string.join(l, c)
+
+    
 def create_link(datafile, filename, format, t):
     """ Creates the link to the filename in a directory with the given format
         for the given time t, in the target directory.
@@ -191,15 +231,38 @@ def create_link(datafile, filename, format, t):
     if os.path.isdir(dir) is False:
         # ::TODO first week of year, last week of last year::
         os.mkdir(dir)
-    link = os.path.basename(filename)
-    link = os.path.join(dir, link)
-    # make link
+
+    basename = os.path.basename(filename)
+    link = os.path.join(dir, basename)
+
+    # get collision r value for the link
+    r = datafile.get_linkname_collision(link)
+    basename = concat_parent_directories(filename, r)
+    link = os.path.join(dir, basename)
+
+    # check if there is a collision with the link
     if os.path.exists(link):
-        print "MATCH: %s %s" % (filename, link)
-        # ::TODO collision detection::
-    else:
-        os.symlink(filename, link)
-        print filename, link 
+        # restore the name of the previous link
+        ofilename = os.readlink(link)
+        olinkname = link
+        linkname = link
+        # diverse until there is no collision
+        while olinkname == linkname:
+            # there is a collision - prepend the previous directory to the links.
+            r += 1
+            obasename = concat_parent_directories(ofilename, r)
+            olinkname = os.path.join(dir, obasename)
+
+            basename = concat_parent_directories(filename, r)
+            linkname = os.path.join(dir, basename)
+        # save r value
+        datafile.set_linkname_collision(link, r)
+        # rename old link
+        os.rename(link, olinkname)
+        link = linkname
+    # make link
+    os.symlink(filename, link)
+
 
 def check_file(datafile, filename, t=None):
     """ Checks if the given file is unique and if so then create the links to
@@ -218,13 +281,12 @@ def check_file(datafile, filename, t=None):
         # The file may be new, check its hash (size + partal shasum)
         shasum = partial_shasum(filename, datafile.config['shaclip'])
         size = os.path.getsize(filename)
-        mtime = time.localtime(os.path.getmtime(filename))
         if datafile.hash_is_unique(size, shasum):
             # The file is new.
             if size > datafile.config['minsize']:
                 # ::CHECK if the format can be in the config directory::
                 for format in ['month/%Y-%m', 'week/%Y-%U', 'day/%Y-%m-%d']:
-                    create_link(datafile, filename, format, mtime)
+                    create_link(datafile, filename, format, t)
         datafile.append_filehash(filename, size, shasum)
 
 
@@ -249,7 +311,8 @@ def create_initial_directory(datafilename, sources, target, minsize, shaclip):
     # scan sources
     for d in sources:
         for f in locate(d):
-             check_file(datafile, f)
+             mtime = time.localtime(os.path.getmtime(filename))
+             check_file(datafile, f, mtime)
 
 create_initial_directory('datafile.txt', ['Video'], 'recent', 1024*512, 1024*1024*10)
 
