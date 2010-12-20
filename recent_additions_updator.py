@@ -7,9 +7,10 @@ is expected to be run as a cron script regularly.
 
 As files can be created with timestamps (preventing the recent files from being
 detected by using ctime or mtime), and files can be renamed this program will
-maintain a list of all the files and their shasums in the scan directories. 
+maintain a list of all the files and their partial shasums in the scan
+directories.
 
-In order to improve the speed only a partial shasum will be preformed. To
+In order to improve the speed, only a partial shasum will be preformed. To
 minimize the chance of collisions, the program will also check against the
 files size.
 
@@ -38,7 +39,7 @@ INT_PARAMETERS = ['minsize', 'shaclip']
 class Datafile:
     """ Storage class for the datafile."""
   
-    # ::TODO improve config loading::
+    # ::TODO improve config access ::
  
     @staticmethod
     def New(datafilename, sources, target, minsize, shaclip):
@@ -84,6 +85,7 @@ class Datafile:
             m = re.match("(.+?) *= *(.+)", line)
             if m:
                 # config parameter
+                # format is: <key> = <value>
                 key = m.group(1)
                 value = m.group(2)
 
@@ -95,6 +97,7 @@ class Datafile:
                     self.config[key] = value
             else:
                 # file record 
+                # format is: <partial shasum> <size> <filename>
                 s = line.find(' ')
                 ss = line.find(' ', s+1)
                 if s < 0 and ss < 0:
@@ -109,11 +112,11 @@ class Datafile:
         self.datafilefp = open(datafilename, 'a')
 
 
-    def check_filename_exists(self, filename):
-        """ Returns true if the filename exists in the
+    def filename_is_unique(self, filename):
+        """ Returns true if the filename does not exist in the
             datafile.
         """
-        return self.filenames in filenames
+        return filename not in self.filenames
 
 
     def hash_is_unique(self, size, partial_shasum):
@@ -174,21 +177,55 @@ def locate(root):
 
 
 
-def create_links(filename, target, format, t=None):
+def create_link(datafile, filename, format, t):
+    """ Creates the link to the filename in a directory with the given format
+        for the given time t, in the target directory.
+
+        If the directory does not exist it will be created.
+    """
     if t is None:
         t = time.localtime()
     dir = time.strftime(format, t)
-    dir = os.path.join(target, dir)
+    dir = os.path.join(datafile.config['target'], dir)
     # create directory (if necessary)    
     if os.path.isdir(dir) is False:
+        # ::TODO first week of year, last week of last year::
         os.mkdir(dir)
     link = os.path.basename(filename)
     link = os.path.join(dir, link)
     # make link
     if os.path.exists(link):
         print "MATCH: %s %s" % (filename, link)
+        # ::TODO collision detection::
     else:
         os.symlink(filename, link)
+        print filename, link 
+
+def check_file(datafile, filename, t=None):
+    """ Checks if the given file is unique and if so then create the links to
+        the filename in the 'recent additions' month, day and week
+        directories.
+
+        t is a time struct containing the time in which the file was created.
+        If None (or ommitted) then the current localtime will be used.
+    """
+    if t is None:
+        t = time.localtime()
+    # This helps prevent dead links
+    filename = os.path.abspath(filename)
+    
+    if datafile.filename_is_unique(filename):
+        # The file may be new, check its hash (size + partal shasum)
+        shasum = partial_shasum(filename, datafile.config['shaclip'])
+        size = os.path.getsize(filename)
+        mtime = time.localtime(os.path.getmtime(filename))
+        if datafile.hash_is_unique(size, shasum):
+            # The file is new.
+            if size > datafile.config['minsize']:
+                # ::CHECK if the format can be in the config directory::
+                for format in ['month/%Y-%m', 'week/%Y-%U', 'day/%Y-%m-%d']:
+                    create_link(datafile, filename, format, mtime)
+        datafile.append_filehash(filename, size, shasum)
 
 
 def create_initial_directory(datafilename, sources, target, minsize, shaclip):
@@ -212,19 +249,8 @@ def create_initial_directory(datafilename, sources, target, minsize, shaclip):
     # scan sources
     for d in sources:
         for f in locate(d):
-            f = os.path.abspath(f)
-            shasum = partial_shasum(f, datafile.config['shaclip'])
-            size = os.path.getsize(f)
-            mtime = time.localtime(os.path.getmtime(f))
-            
-            # filename is unique, only need to check size and partial shasum
-            if datafile.hash_is_unique(size, shasum):
-                if size > datafile.config['minsize']:
-                    create_links(f, target, 'month/%Y-%m', mtime)
-                    create_links(f, target, 'week/%Y-%U', mtime)
-                    create_links(f, target, 'day/%Y-%m-%d', mtime) 
-                datafile.append_filehash(f, size, shasum)
-  
+             check_file(datafile, f)
+
 create_initial_directory('datafile.txt', ['Video'], 'recent', 1024*512, 1024*1024*10)
 
 #d = Datafile.Load('datafile.txt')
