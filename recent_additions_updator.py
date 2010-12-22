@@ -36,7 +36,6 @@ where parameters can be:
 # :: TODO add main() ::
 # :: TODO 3 startup modes. file time = now, file time = mtime, daemonize::
 # :: TODO Remove dead links::
-# :: TODO refactor code so there is a new_file and modified_file methods::
 # :: TODO refactor so checking+linking methods are in their own class (simplifying common variables)::
 # :: TODO add inotify support, checking file modified and file added, file removed::
 
@@ -49,6 +48,20 @@ import re
 
 INT_PARAMETERS = ['minsize', 'shaclip']
 MULTI_PARAMETERS = ['scan']
+
+class DataFileError(Exception):
+    """ Configuration file error.
+
+        Called if there an error in the datafile.
+    """
+    line = ""
+
+    def __init__(self, line):
+        self.line
+
+    def __str__(self):
+        return "Error in line: %s" % self.line
+    
 
 class Hash:
     """ A hash contains both the size and a partial shasum of a file."""
@@ -122,7 +135,7 @@ class Datafile:
             Raises an Exception if the datafile already exists.
         """
         if os.path.exists(datafilename):
-            raise Exception("Datafile %s already exists." % datafilename)
+            raise IOError("Datafile %s already exists." % datafilename)
 
         fp = open(datafilename, 'w')
         # copy config to datafile
@@ -223,22 +236,22 @@ class Datafile:
         self.datafilefp.write("%s %d %s\n" % (h, intt, filename))
 
 
-    def add_link(self, hash, linkname):
+    def add_link(self, h, linkname):
         """ Adds the linkname (with a hash) to the datafile."""
-        t, links = self.hash_links[hash]
+        t, links = self.hash_links[h]
         links.add(linkname)
         self.datafilefp.write("LINK %s %s\n" % (hash, linkname))
 
 
-    def get_links(self, hash):
+    def get_links(self, h):
         """ Returns a set of links for a given hash."""
-        t, links = self.hash_links[hash]
+        t, links = self.hash_links[h]
         return links
 
 
-    def get_time(self, hash):
+    def get_time(self, h):
         """ Returns the time a given hash was added to the datafile."""
-        t, links = self.hash_links[hash]
+        t, links = self.hash_links[h]
         return time.localtime(t)
         
 
@@ -313,6 +326,47 @@ def concat_parent_directories(filename, r, c=' - '):
     l.reverse()
     return string.join(l, c)
 
+
+def new_file(datafile, filename, h=None, t=None):
+    """ Processes a new file.
+    """
+    if h is None:
+        h = Hash.FromFile(filename)
+    if t is None:
+        t = time.localtime()
+        
+    datafile.append_filehash(filename, h, t)
+    if h.size > datafile.config['minsize']:
+        # ::CHECK if the format can be moved to the config directory::
+        for format in ['month/%Y-%m', 'week/%Y-%U', 'day/%Y-%m-%d']:
+            linkname = create_link(datafile, filename, format, t)
+            datafile.add_link(h, linkname) 
+
+
+def renamed_file(datafile, newfilename, h=None):
+    """ Removes the old links, and creates the new ones.
+
+        Called when a the system has detected a file woth a specific hash has
+        been renamed.
+
+        If the hash is not supplied, then it will be calculated.        
+    """
+    if h is None:
+        h = Hash.FromFile(newfilename)
+        if datafile.hash_exists(h) is False:
+            # The wrong method was called, calling new_file 
+            new_file(datafile, newfilename, h) 
+    # Remove the old links.
+    links = datafile.get_links(h)
+    for link in datafile.get_links(h):
+        if os.path.exists(link):
+            os.remove(link)
+            # get the time of the origional link, otherwise
+            # it may end up as today
+            t = datafile.get_time(h)
+            new_file(datafile, newfilename, h, t)
+    
+    
     
 def create_link(datafile, filename, format, t):
     """ Creates the link to the filename in a directory with the given format
@@ -322,8 +376,6 @@ def create_link(datafile, filename, format, t):
 
         If the directory does not exist it will be created.
     """
-    if t is None:
-        t = time.localtime()
     dir = time.strftime(format, t)
     dir = os.path.join(datafile.config['target'], dir)
     # create directory (if necessary)    
@@ -382,20 +434,9 @@ def check_file(datafile, filename, t=None):
         h = Hash.FromFile(filename)
         if datafile.hash_exists(h):
             # The file has been moved or renamed.
-            # Remove the old links.
-            links = datafile.get_links(h)
-            for link in datafile.get_links(h):
-                if os.path.exists(link):
-                    os.remove(link)
-                # get the time of the origional link, otherwise
-                # it may end up as today
-                t = datafile.get_time(h)
-        datafile.append_filehash(filename, h, t)
-        if h.size > datafile.config['minsize']:
-            # ::CHECK if the format can be moved to the config directory::
-            for format in ['month/%Y-%m', 'week/%Y-%U', 'day/%Y-%m-%d']:
-                linkname = create_link(datafile, filename, format, t)
-                datafile.add_link(h, linkname) 
+            renamed_file(datafile, filename, h)
+        else:
+            new_file(datafile, filename, h, t)
 
 
 def create_initial_directory(datafilename, sources, target, minsize, shaclip):
@@ -409,7 +450,7 @@ def create_initial_directory(datafilename, sources, target, minsize, shaclip):
     """
     datafile = Datafile.New(datafilename, sources, target, minsize, shaclip)
     if os.path.exists(target):
-        raise Exception("Directory %s already exists." % target)
+        raise IOError("Directory %s already exists." % target)
 
     # create recent updates directory 
     os.mkdir(target)
