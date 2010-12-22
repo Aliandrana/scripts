@@ -33,12 +33,13 @@ where parameters can be:
                 directory.
 """
 
-# :: TODO add main() ::
-# :: TODO 3 startup modes. file time = now, file time = mtime, daemonize::
+# :: TODO add folder modes into config ::
+# :: TODO yesterday, today, this week, last week, this month links::
 # :: TODO Remove dead links::
-# :: TODO refactor so checking+linking methods are in their own class (simplifying common variables)::
 # :: TODO add inotify support, checking file modified and file added, file removed::
 
+import argparse
+import datetime
 import binascii
 import hashlib
 import string
@@ -48,6 +49,8 @@ import re
 
 INT_PARAMETERS = ['minsize', 'shaclip']
 MULTI_PARAMETERS = ['scan']
+
+global datafile
 
 class DataFileError(Exception):
     """ Configuration file error.
@@ -125,8 +128,6 @@ class Hash:
 class Datafile:
     """ Storage class for the datafile."""
   
-    # ::TODO improve config access ::
- 
     # ::TODO Remove::
     @staticmethod
     def New(datafilename, sources, target, minsize, shaclip):
@@ -327,7 +328,7 @@ def concat_parent_directories(filename, r, c=' - '):
     return string.join(l, c)
 
 
-def new_file(datafile, filename, h=None, t=None):
+def new_file(filename, h=None, t=None):
     """ Processes a new file.
     """
     if h is None:
@@ -339,11 +340,11 @@ def new_file(datafile, filename, h=None, t=None):
     if h.size > datafile.config['minsize']:
         # ::CHECK if the format can be moved to the config directory::
         for format in ['month/%Y-%m', 'week/%Y-%U', 'day/%Y-%m-%d']:
-            linkname = create_link(datafile, filename, format, t)
+            linkname = create_link(filename, format, t)
             datafile.add_link(h, linkname) 
 
 
-def renamed_file(datafile, newfilename, h=None):
+def renamed_file(newfilename, h=None):
     """ Removes the old links, and creates the new ones.
 
         Called when a the system has detected a file woth a specific hash has
@@ -355,7 +356,7 @@ def renamed_file(datafile, newfilename, h=None):
         h = Hash.FromFile(newfilename)
         if datafile.hash_exists(h) is False:
             # The wrong method was called, calling new_file 
-            new_file(datafile, newfilename, h) 
+            new_file(newfilename, h) 
     # Remove the old links.
     links = datafile.get_links(h)
     for link in datafile.get_links(h):
@@ -364,11 +365,33 @@ def renamed_file(datafile, newfilename, h=None):
             # get the time of the origional link, otherwise
             # it may end up as today
             t = datafile.get_time(h)
-            new_file(datafile, newfilename, h, t)
+            new_file(newfilename, h, t)
     
-    
-    
-def create_link(datafile, filename, format, t):
+
+def create_directory(format, t):
+    """ Creates a directory within the recent additions folder for format and
+        time t.
+
+        If the directory already exists then nothing happens.
+
+        This method will return the name of the directory created.
+    """
+    dir = time.strftime(format, t)
+
+    # Handle the first week of year, last week of last year issue.
+    # They now both represented as the last week of the previous year.
+    if format.endswith('%U') and dir.endswith('00'):
+        lastweek = datetime.date(t.tm_year - 1, 12, 31)
+        dir = lastweek.strftime(format)
+
+    dir = os.path.join(datafile.config['target'], dir)
+    # create directory (if necessary)    
+    if os.path.isdir(dir) is False:
+        os.mkdir(dir)
+    return dir
+
+ 
+def create_link(filename, format, t):
     """ Creates the link to the filename in a directory with the given format
         for the given time t, in the target directory.
 
@@ -376,13 +399,7 @@ def create_link(datafile, filename, format, t):
 
         If the directory does not exist it will be created.
     """
-    dir = time.strftime(format, t)
-    dir = os.path.join(datafile.config['target'], dir)
-    # create directory (if necessary)    
-    if os.path.isdir(dir) is False:
-        # ::TODO first week of year, last week of last year::
-        os.mkdir(dir)
-
+    dir = create_directory(format, t)
     basename = os.path.basename(filename)
     link = os.path.join(dir, basename)
 
@@ -416,7 +433,7 @@ def create_link(datafile, filename, format, t):
     return link
 
 
-def check_file(datafile, filename, t=None):
+def check_file(filename, t=None):
     """ Checks if the given file is unique and if so then create the links to
         the filename in the 'recent additions' month, day and week
         directories.
@@ -434,9 +451,9 @@ def check_file(datafile, filename, t=None):
         h = Hash.FromFile(filename)
         if datafile.hash_exists(h):
             # The file has been moved or renamed.
-            renamed_file(datafile, filename, h)
+            renamed_file(filename, h)
         else:
-            new_file(datafile, filename, h, t)
+            new_file(filename, h, t)
 
 
 def create_initial_directory(datafilename, sources, target, minsize, shaclip):
@@ -448,6 +465,7 @@ def create_initial_directory(datafilename, sources, target, minsize, shaclip):
 
         Raises Exception if the target directory or the datafile already exists.
     """
+    global datafile
     datafile = Datafile.New(datafilename, sources, target, minsize, shaclip)
     if os.path.exists(target):
         raise IOError("Directory %s already exists." % target)
@@ -461,10 +479,39 @@ def create_initial_directory(datafilename, sources, target, minsize, shaclip):
     for d in sources:
         for f in locate(d):
              mtime = time.localtime(os.path.getmtime(f))
-             check_file(datafile, f, mtime)
+             check_file(f, mtime)
+
 
 Hash.set_shaclip(1024*1024*10)
 create_initial_directory('datafile.txt', ['Video'], 'recent', 1024*512, 1024*1024*10)
 
-#d = Datafile.Load('datafile.txt')
+def main():
+    """ Main function call for the program.
+
+        Loads the datafile and checks for any changes in the sources folders.
+    """
+    parser = argparse.ArgumentParser(description='Recent Additions Directory updator.')
+    parser.add_argument('datafile', nargs=1,
+            help='The datafile of the Recent Additions Directory.')
+    parser.add_argument('-f', '--file-time', dest='file_time', action='store_true', default=False, 
+            help="""Uses the files mtime as the creation time of any new files found in the source directories.
+(if not selected then the current time will be used for any new files found.)""")
+    
+    options = parser.parse_args()
+
+    global datafile
+    datafile = Datafile.Load(options.datafile[0])
+
+    Hash.set_shaclip(datafile.config['shaclip'])
+    
+    for d in datafile.config['sources']:
+        for f in locate(d):
+            if options.file_time:
+                mtime = time.localtime(os.path.getmtime(f))
+                check_file(f, mtime)
+            else:
+                checkfile(f)
+
+if __name__ == "__main__":
+    main()
 
