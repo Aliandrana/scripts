@@ -63,7 +63,7 @@ class DataFileError(Exception):
 
     def __str__(self):
         return "Error in line: %s" % self.line
-    
+
 
 class Hash:
     """ A hash contains both the size and a partial shasum of a file."""
@@ -98,7 +98,9 @@ class Hash:
         self.partial_shasum = shasum.digest()
 
     def _read_string(self, str):
-        m = re.match("([0-9A-F]+ +[0-9]+) +([0-9]+)", str)
+        m = re.match("([0-9a-fA-F]+) +([0-9]+)", str)
+        if m is None:
+            raise ValueError("Invalid format", str)
         self.partial_shasum_hex = m.group(1) 
         self.partial_shasum = binascii.unhexlify(m.group(1))
         self.size = int(m.group(2)) 
@@ -175,42 +177,49 @@ class Datafile:
 
         fp = open(datafilename, 'r')
         for line in fp:
-            m = re.match("(.+?) *= *(.+)", line)
-            if m:
-                # config parameter
-                # format is: <key> = <value>
-                key = m.group(1)
-                value = m.group(2).strip()
-
-                if key in MULTI_PARAMETERS:
-                    self.config[key].add(value)
-                elif key in INT_PARAMETERS:
-                    self.config[key] = int(value)
-                else:
-                    self.config[key] = value
-            elif line.startswith("COLLISION"):
+            if line.startswith("COLLISION"):
                 # Collision match record.
                 # format is: COLLISION <linkname> <r>
                 m = re.match("COLLISION +(.+) +([0-9]+)", line)
                 linkname = m.group(1)
                 r = int(m.group(2))
                 self.collisions[linkname] = r
+                continue
             elif line.startswith("LINK"):
                 # Link record.
                 # format is: LINK <hash> <link>
-                m = re.match("LINK +([0-9A-F]+ ([0-9]+) +(.+)", line)
+                m = re.match("LINK +([0-9a-fA-F]+ [0-9]+) +(.+)", line)
                 h = Hash.FromString(m.group(1))
                 link = m.group(2)
-                self.hash_links[h].append(link)
+                t, links = self.hash_links[h]
+                links.add(link)
+                continue
             else:
-                # file record 
-                # format is: <hash> <time> <filename>
-                m = re.match("([0-9A-F]+ [0-9]+) +([0-9]+) +(.+)", line)
-                h = Hash.FromString(m.group(1))
-                t = int(m.group(2))
-                file = m.group(3) 
-                self.filenames.add(file)
-                self.hash_links[h] = (t, set())
+                m = re.match("([0-9a-fA-F]+ [0-9]+) +([0-9]+) +(.+)", line)
+                if m is not None:
+                    # file record 
+                    # format is: <hash> <time> <filename>
+                    h = Hash.FromString(m.group(1))
+                    t = int(m.group(2))
+                    file = m.group(3) 
+                    self.filenames.add(file)
+                    self.hash_links[h] = (t, set())
+                    continue;
+                m = re.match("(.+?) *= *(.+)", line)
+                if m is not None:
+                    # config parameter
+                    # format is: <key> = <value>
+                    key = m.group(1)
+                    value = m.group(2).strip()
+
+                    if key in MULTI_PARAMETERS:
+                        self.config[key].add(value)
+                    elif key in INT_PARAMETERS:
+                        self.config[key] = int(value)
+                    else:
+                        self.config[key] = value
+                    continue
+            raise ValueError("Invalid format", line)
         fp.close()
         self.datafilefp = open(datafilename, 'a')
 
@@ -245,7 +254,7 @@ class Datafile:
         intt = int(time.mktime(t))
         # reset links (as the links either do not exist or have been deleted)
         # clear cache (to prevent mis matches)
-        self._cache = (innt, set())
+        self._cache = (intt, set())
         self._hash_cache = h 
         self.hash_links[h] = self._cache
         # append to datafile
@@ -265,7 +274,9 @@ class Datafile:
         if self._hash_cache is not None and self._hash_cache == h:
             t, links = self._cache
         else:
-            t, links = self.hash_links[h]
+            # populate cache
+            self._hash_cache = h
+            t, links = self._cache = self.hash_links[h]
         return links
 
 
@@ -274,7 +285,9 @@ class Datafile:
         if self._hash_cache is not None and self._hash_cache == h:
             t, links = self._cache
         else:
-            t, links = self.hash_links[h]
+            # populate cache
+            self._hash_cache = h
+            t, links = self._cache = self.hash_links[h]
         return time.localtime(t)
         
 
@@ -349,7 +362,6 @@ def concat_parent_directories(filename, r, c=' - '):
     l.reverse()
     return string.join(l, c)
 
-
 def new_file(filename, h=None, t=None):
     """ Processes a new file.
     """
@@ -357,7 +369,7 @@ def new_file(filename, h=None, t=None):
         h = Hash.FromFile(filename)
     if t is None:
         t = time.localtime()
-        
+    
     datafile.append_filehash(filename, h, t)
     if h.size > datafile.config['minsize']:
         # ::CHECK if the format can be moved to the config directory::
@@ -378,16 +390,16 @@ def renamed_file(newfilename, h=None):
         h = Hash.FromFile(newfilename)
         if datafile.hash_exists(h) is False:
             # The wrong method was called, calling new_file 
-            new_file(newfilename, h) 
-    t = datafile.get_time(h)
-    # Remove the old links.
-    links = datafile.get_links(h)
-    for link in datafile.get_links(h):
-        if os.path.exists(link):
-            os.remove(link)
-            # get the time of the origional link, otherwise
-            # it may end up as today
-            new_file(newfilename, h, t)
+            new_file(newfilename, h)
+    else:  
+        t = datafile.get_time(h)
+        # Remove the old links.
+        for link in datafile.get_links(h):
+            if os.path.exists(link):
+                os.remove(link)
+        # get the time of the origional link, otherwise
+        # it may end up as today
+        new_file(newfilename, h, t)
     
 
 def create_recent_directories(name, format, tdiff):
@@ -401,9 +413,9 @@ def create_recent_directories(name, format, tdiff):
     if os.path.exists(dir):
         if os.realpath(dir) is not dir:
             os.remove(dir)
-            os.symlink(target, name)
+            os.symlink(target, dir)
     else:
-        os.symlink(target, name)
+        os.symlink(target, dir)
 
 
 def create_directory(format, t):
@@ -520,8 +532,8 @@ def create_initial_directory(datafilename, sources, target, minsize, shaclip):
              check_file(f, mtime)
 
 
-Hash.set_shaclip(1024*1024*10)
-create_initial_directory('datafile.txt', ['Video'], 'recent', 1024*512, 1024*1024*10)
+#Hash.set_shaclip(1024*1024*10)
+#create_initial_directory('datafile.txt', ['Video'], 'recent', 1024*512, 1024*1024*10)
 
 def main():
     """ Main function call for the program.
@@ -541,14 +553,14 @@ def main():
     datafile = Datafile.Load(options.datafile[0])
 
     Hash.set_shaclip(datafile.config['shaclip'])
-    
-    for d in datafile.config['sources']:
+   
+    for d in datafile.config['scan']:
         for f in locate(d):
             if options.file_time:
                 mtime = time.localtime(os.path.getmtime(f))
                 check_file(f, mtime)
             else:
-                checkfile(f)
+                check_file(f)
     # Create relative shortcuts.
     create_recent_directories('Today', 'day/%Y-%m-%d', 0)
     create_recent_directories('Yesterday', 'day/%Y-%m-%d', 24*60*60)
