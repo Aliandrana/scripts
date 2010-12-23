@@ -34,7 +34,6 @@ where parameters can be:
 """
 
 # :: TODO add folder modes into config ::
-# :: TODO yesterday, today, this week, last week, this month links::
 # :: TODO Remove dead links::
 # :: TODO add inotify support, checking file modified and file added, file removed::
 
@@ -127,6 +126,10 @@ class Hash:
 
 class Datafile:
     """ Storage class for the datafile."""
+
+    # hash caching, save time on second lookup
+    _hash_cache = None  # the hash being cached.
+    _cache = None       # the links, time data of the cache
   
     # ::TODO Remove::
     @staticmethod
@@ -222,7 +225,16 @@ class Datafile:
     def hash_exists(self, h):
         """ Returns true if the given hash shasum exist in the datafile.
         """
-        return h in self.hash_links
+        try:
+            # save cache because the next thing we will probably do with this
+            # is retrieve the data from it.
+            self._cache = self.hash_links[h]
+            self._hash_cache = h
+            return True
+        except KeyError:
+            # faster than doing two lookups.
+            self._hash_cache = None
+            return False
 
 
     def append_filehash(self, filename, h, t):
@@ -232,27 +244,37 @@ class Datafile:
         self.filenames.add(filename)
         intt = int(time.mktime(t))
         # reset links (as the links either do not exist or have been deleted)
-        self.hash_links[h] = (intt, set())
+        # clear cache (to prevent mis matches)
+        self._cache = (innt, set())
+        self._hash_cache = h 
+        self.hash_links[h] = self._cache
         # append to datafile
         self.datafilefp.write("%s %d %s\n" % (h, intt, filename))
 
 
     def add_link(self, h, linkname):
         """ Adds the linkname (with a hash) to the datafile."""
-        t, links = self.hash_links[h]
+        links = self.get_links(h)
         links.add(linkname)
-        self.datafilefp.write("LINK %s %s\n" % (hash, linkname))
+        
+        self.datafilefp.write("LINK %s %s\n" % (h, linkname))
 
 
     def get_links(self, h):
         """ Returns a set of links for a given hash."""
-        t, links = self.hash_links[h]
+        if self._hash_cache is not None and self._hash_cache == h:
+            t, links = self._cache
+        else:
+            t, links = self.hash_links[h]
         return links
 
 
     def get_time(self, h):
         """ Returns the time a given hash was added to the datafile."""
-        t, links = self.hash_links[h]
+        if self._hash_cache is not None and self._hash_cache == h:
+            t, links = self._cache
+        else:
+            t, links = self.hash_links[h]
         return time.localtime(t)
         
 
@@ -357,6 +379,7 @@ def renamed_file(newfilename, h=None):
         if datafile.hash_exists(h) is False:
             # The wrong method was called, calling new_file 
             new_file(newfilename, h) 
+    t = datafile.get_time(h)
     # Remove the old links.
     links = datafile.get_links(h)
     for link in datafile.get_links(h):
@@ -364,9 +387,24 @@ def renamed_file(newfilename, h=None):
             os.remove(link)
             # get the time of the origional link, otherwise
             # it may end up as today
-            t = datafile.get_time(h)
             new_file(newfilename, h, t)
     
+
+def create_recent_directories(name, format, tdiff):
+    """ Creates a link to a formatted recent additions directory that is tdiff
+        seconds behind the current time.
+    """
+    t = time.localtime(time.time() - tdiff)
+    target = create_directory(format, t)
+    dir = os.path.join(datafile.config['target'], name)
+
+    if os.path.exists(dir):
+        if os.realpath(dir) is not dir:
+            os.remove(dir)
+            os.symlink(target, name)
+    else:
+        os.symlink(target, name)
+
 
 def create_directory(format, t):
     """ Creates a directory within the recent additions folder for format and
@@ -455,7 +493,7 @@ def check_file(filename, t=None):
         else:
             new_file(filename, h, t)
 
-
+#::TODO Remove ::
 def create_initial_directory(datafilename, sources, target, minsize, shaclip):
     """ Scans the source directories and creates the datafile, while populating
         the target 'recent additions' directory.
@@ -511,6 +549,13 @@ def main():
                 check_file(f, mtime)
             else:
                 checkfile(f)
+    # Create relative shortcuts.
+    create_recent_directories('Today', 'day/%Y-%m-%d', 0)
+    create_recent_directories('Yesterday', 'day/%Y-%m-%d', 24*60*60)
+    create_recent_directories('This week', 'week/%Y-%U', 0)
+    create_recent_directories('Last week', 'week/%Y-%U', 7*24*60*60)
+    create_recent_directories('This month', 'month/%Y-%m', 0)
+    
 
 if __name__ == "__main__":
     main()
