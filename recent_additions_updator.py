@@ -336,6 +336,7 @@ def concat_parent_directories(filename, r, c=' - '):
     l.reverse()
     return string.join(l, c)
 
+
 def new_file(filename, h=None, t=None):
     """ Processes a new file.
     """
@@ -385,7 +386,7 @@ def create_recent_directories(name, format, tdiff):
     dir = os.path.join(datafile.config['target'], name)
 
     if os.path.exists(dir):
-        if os.realpath(dir) is not dir:
+        if os.path.realpath(dir) is not dir:
             os.remove(dir)
             os.symlink(target, dir)
     else:
