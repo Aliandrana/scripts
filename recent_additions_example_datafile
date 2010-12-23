@@ -1,0 +1,4 @@
+target = /export/shared/recent additions
+scan = /export/shared/Video
+shaclip = 10485760
+minsize = 153600
