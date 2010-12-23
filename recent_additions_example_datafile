@@ -1,4 +1,10 @@
 target = /export/shared/recent additions
-scan = /export/shared/Video
 shaclip = 10485760
 minsize = 153600
+scan = /export/shared/audio
+scan = /export/shared/dos
+scan = /export/shared/downloads
+scan = /export/shared/roms
+scan = /export/shared/tools
+scan = /export/shared/video
+scan = /export/shared/windows

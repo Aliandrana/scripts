@@ -129,35 +129,9 @@ class Hash:
 class Datafile:
     """ Storage class for the datafile."""
 
-    # hash caching, save time on second lookup
     _hash_cache = None  # the hash being cached.
     _cache = None       # the links, time data of the cache
-  
-    # ::TODO Remove::
-    @staticmethod
-    def New(datafilename, sources, target, minsize, shaclip):
-        """ Creates a new datafile with the given configuration.
-            
-            Raises an Exception if the datafile already exists.
-        """
-        if os.path.exists(datafilename):
-            raise IOError("Datafile %s already exists." % datafilename)
-
-        fp = open(datafilename, 'w')
-        # copy config to datafile
-        for d in sources:
-            fp.write("scan = %s\n" % os.path.abspath(d))
-        fp.write("target = %s\n" %target)
-        fp.write("shaclip = %d\n" % shaclip)
-        fp.write("minsize = %d\n" % minsize)
-        fp.close()
-
-        # too much effort to recreate the variables, just reload the file
-        d = Datafile()
-        d.__load(datafilename)
-        return d
-
-
+ 
     @staticmethod
     def Load(datafilename):
         """ Loads the datafile into memory."""
@@ -505,35 +479,6 @@ def check_file(filename, t=None):
         else:
             new_file(filename, h, t)
 
-#::TODO Remove ::
-def create_initial_directory(datafilename, sources, target, minsize, shaclip):
-    """ Scans the source directories and creates the datafile, while populating
-        the target 'recent additions' directory.
-
-        sources, target, minsize and shaclip are the settings of the 'recent
-        additions' directory, and will be saved into the datafile.
-
-        Raises Exception if the target directory or the datafile already exists.
-    """
-    global datafile
-    datafile = Datafile.New(datafilename, sources, target, minsize, shaclip)
-    if os.path.exists(target):
-        raise IOError("Directory %s already exists." % target)
-
-    # create recent updates directory 
-    os.mkdir(target)
-    os.mkdir(os.path.join(target, 'month'))
-    os.mkdir(os.path.join(target, 'week'))
-    os.mkdir(os.path.join(target, 'day'))
-    # scan sources
-    for d in sources:
-        for f in locate(d):
-             mtime = time.localtime(os.path.getmtime(f))
-             check_file(f, mtime)
-
-
-#Hash.set_shaclip(1024*1024*10)
-#create_initial_directory('datafile.txt', ['Video'], 'recent', 1024*512, 1024*1024*10)
 
 def main():
     """ Main function call for the program.
