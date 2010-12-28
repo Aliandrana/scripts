@@ -378,7 +378,6 @@ def renamed_file(newfilename, h=None):
                 pass
         # get the time of the origional link, otherwise
         # it may end up as today
-        print newfilename
         new_file(newfilename, h, t)
     
 
