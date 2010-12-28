@@ -364,14 +364,17 @@ def renamed_file(newfilename, h=None):
     if h is None:
         h = Hash.FromFile(newfilename)
         if datafile.hash_exists(h) is False:
-            # The wrong method was called, calling new_file 
+            # The wrong method was called, calling new_file
             new_file(newfilename, h)
     else:  
         t = datafile.get_time(h)
         # Remove the old links.
         for link in datafile.get_links(h):
-            if os.path.exists(link):
+            # for some reason os.path.exists fails on a broken symlink.
+            try:
                 os.remove(link)
+            except:
+                pass
         # get the time of the origional link, otherwise
         # it may end up as today
         new_file(newfilename, h, t)
