@@ -36,6 +36,7 @@ where parameters can be:
 # :: TODO add folder modes into config ::
 # :: TODO Remove dead links::
 # :: TODO add inotify support, checking file modified and file added, file removed::
+# :: TODO add some ACID support to the datafile.::
 
 import argparse
 import datetime
@@ -377,6 +378,7 @@ def renamed_file(newfilename, h=None):
                 pass
         # get the time of the origional link, otherwise
         # it may end up as today
+        print newfilename
         new_file(newfilename, h, t)
     
 
