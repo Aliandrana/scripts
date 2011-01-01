@@ -25,15 +25,21 @@ where hash is:
     <partial shasum> <size>
 
 where parameters can be:
- * scan    - the directory to scan (this paramter can be used multiple times).
+ * scan    - the directory to scan. This paramter can be used multiple times.
  * target  - the location of the 'recent additions' directory
  * shaclip - the number of megabytes (in the beginning of the file)
                 the shasum is created from.
  * minsize - the minimum size of a file that end up in the recent additions
                 directory.
+ * ignore  - a regular expression of files to ignore (ie, \.part$). This
+                parameter can be used multiple times.
 """
+# ::AUTOFILL name::
+# ::AUTOFILL copyleft::
+# ::AUTOFILL license BSD::
 
-# :: TODO add folder modes into config ::
+# ::REQUIRES: symlink support, zc.lockfile::
+
 # :: TODO Remove dead links::
 # :: TODO add inotify support, checking file modified and file added, file removed::
 
@@ -48,7 +54,8 @@ import re
 import zc.lockfile
 
 INT_PARAMETERS = ['minsize', 'shaclip']
-MULTI_PARAMETERS = ['scan']
+MULTI_PARAMETERS = ['scan', 'ignore']
+REGEX_PRARMETERS = ['ignore']
 
 global datafile
 
@@ -181,13 +188,14 @@ class Datafile:
                     self.filenames.add(file)
                     self.hash_links[h] = (t, set())
                     continue;
-                m = re.match("(.+?) *= *(.+)", line)
+                m = re.match(r"(.+?)\s*=\s*(.+)", line)
                 if m is not None:
                     # config parameter
                     # format is: <key> = <value>
                     key = m.group(1)
                     value = m.group(2).strip()
-
+                    if key in REGEX_PRARMETERS:
+                        value = re.compile(value)
                     if key in MULTI_PARAMETERS:
                         self.config[key].add(value)
                     elif key in INT_PARAMETERS:
@@ -283,6 +291,13 @@ class Datafile:
         self.datafilefp.write("COLLISION %s %d\n" %(linkname, r))
         self.collisions[linkname] = r
 
+
+    def in_ignorelist(self, filename):
+        """ Returns true if the filename matches a regex in the ignore list."""
+        for r in self.config['ignore']:
+            if r.match(filename):
+                return True
+        return False
     
     def __del__(self):
         # Close the datafile
@@ -472,19 +487,20 @@ def check_file(filename, t=None):
         t is a time struct containing the time in which the file was created.
         If None (or ommitted) then the current localtime will be used.
     """
-    if t is None:
-        t = time.localtime()
-    # This helps prevent dead links
-    filename = os.path.abspath(filename)
+    if not datafile.in_ignorelist(filename):
+        if t is None:
+            t = time.localtime()
+        # This helps prevent dead links
+        filename = os.path.abspath(filename)
     
-    if datafile.filename_is_unique(filename):
-        # The file may be new, check its hash 
-        h = Hash.FromFile(filename)
-        if datafile.hash_exists(h):
-            # The file has been moved or renamed.
-            renamed_file(filename, h)
-        else:
-            new_file(filename, h, t)
+        if datafile.filename_is_unique(filename):
+            # The file may be new, check its hash 
+            h = Hash.FromFile(filename)
+            if datafile.hash_exists(h):
+                # The file has been moved or renamed.
+                renamed_file(filename, h)
+            else:
+                new_file(filename, h, t)
 
 
 def main():
