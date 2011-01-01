@@ -36,7 +36,6 @@ where parameters can be:
 # :: TODO add folder modes into config ::
 # :: TODO Remove dead links::
 # :: TODO add inotify support, checking file modified and file added, file removed::
-# :: TODO add some ACID support to the datafile.::
 
 import argparse
 import datetime
@@ -46,6 +45,7 @@ import string
 import time
 import os
 import re
+import zc.lockfile
 
 INT_PARAMETERS = ['minsize', 'shaclip']
 MULTI_PARAMETERS = ['scan']
@@ -137,6 +137,7 @@ class Datafile:
     def Load(datafilename):
         """ Loads the datafile into memory."""
         d = Datafile()
+        d.lock = zc.lockfile.LockFile(datafilename + '.lock')
         d.__load(datafilename)
         return d
 
@@ -286,7 +287,8 @@ class Datafile:
     def __del__(self):
         # Close the datafile
         self.datafilefp.close()
-
+        # Remove the lock
+        self.lock.close()
             
 
 def partial_shasum(filename, clip):
