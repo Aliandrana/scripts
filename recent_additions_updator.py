@@ -295,7 +295,7 @@ class Datafile:
     def in_ignorelist(self, filename):
         """ Returns true if the filename matches a regex in the ignore list."""
         for r in self.config['ignore']:
-            if r.match(filename):
+            if r.search(filename):
                 return True
         return False
     
