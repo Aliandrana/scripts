@@ -9,11 +9,12 @@ import signal
 from urlparse import urlparse
 from httplib import HTTPConnection
 
-from PyQt4.QtCore import QUrl, SIGNAL
+from PyQt4.QtCore import QUrl, QTimer, SIGNAL
 from PyQt4.QtGui import QApplication
 from PyQt4.QtNetwork import QNetworkProxy, QNetworkCookie, QNetworkCookieJar
 from PyQt4.QtWebKit import QWebPage
 
+TIMEOUT_MSECS = 5 * 60 * 1000
 
 #::SOURCE http://stackoverflow.com/questions/5423013/pyqt-how-to-use-qwebpage-with-an-anonimous-proxy/5564898#5564898::
 def set_proxy(proxy):
@@ -40,6 +41,7 @@ class Crawler( QWebPage ):
         QWebPage.__init__(self)
 
     def crawl(self, url):
+        QTimer.singleShot(TIMEOUT_MSECS, self._timeout)
         signal.signal(signal.SIGINT, signal.SIG_DFL)
         self.connect(self, SIGNAL('loadFinished(bool)'), self._finished_loading)
         self.mainFrame().load(QUrl(url))
@@ -62,8 +64,13 @@ class Crawler( QWebPage ):
 
     def _finished_loading( self, result ):
         """ When done loading, pring the result. """
-	print unicode(self.mainFrame().toHtml())
-	sys.exit(0)
+        print unicode(self.mainFrame().toHtml())
+        sys.exit(0)
+
+    def _timeout(self):
+        """ Called if the webpage has timed out."""
+        sys.stderr.write("Timeout.\n")
+        sys.exit(1)
 
 
 def test_url(url):
