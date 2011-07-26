@@ -69,7 +69,7 @@ class Crawler( QWebPage ):
 
     def _timeout(self):
         """ Called if the webpage has timed out."""
-        sys.stderr.write("Timeout.\n")
+        sys.stderr.write("000: Timeout\n")
         sys.exit(1)
 
 
