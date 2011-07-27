@@ -111,8 +111,8 @@ def main():
     app = QApplication([])
 
     if len(sys.argv) < 2:
-        sys.stderr.write("Arguments: url [cookie_name=value ...]\n")
-        sys.exit()
+        stderr.write("Arguments: url [cookie_name=value ...]\n")
+        sys.exit(2)
 
     url = sys.argv[1]
 
