@@ -6,6 +6,7 @@
 import os
 import sys
 import signal
+import subprocess
 from urlparse import urlparse
 from httplib import HTTPConnection
 
@@ -64,31 +65,49 @@ class Crawler( QWebPage ):
 
     def _finished_loading( self, result ):
         """ When done loading, pring the result. """
-        print unicode(self.mainFrame().toHtml())
+        stdout.write(unicode(self.mainFrame().toHtml()))
         sys.exit(0)
 
     def _timeout(self):
         """ Called if the webpage has timed out."""
-        sys.stderr.write("000: Timeout\n")
+        stderr.write("000: Timeout\n")
         sys.exit(1)
 
 
 def test_url(url):
     """ Tests if given url returns a valid response."""
-    p = urlparse(url)
-    conn = HTTPConnection(p.netloc, p.port)
-    conn.request('HEAD', p.path)
-    res = conn.getresponse()
+    try:
+        p = urlparse(url)
+        conn = HTTPConnection(p.netloc, p.port)
+        conn.request('HEAD', p.path)
+        res = conn.getresponse()
+    except Exception as e:
+        stderr.write("000: %s\n" % e)
+        sys.exit(1)
 
     if res.status > 300 and res.status < 399:
         test_url(res.getheader('location'))
         return
     if res.status < 200 or res.status > 399:
-        sys.stderr.write("%d: %s\n" % (res.status, res.reason))
+        stderr.write("%d: %s\n" % (res.status, res.reason))
         sys.exit(1)
 
 
+def redirect_stdio():
+    """
+    Move stderr and stdout to the global varibles stderr and stdout respectivly and cause the default stderr and stdout
+    to be redirected to /dev/null.
+    """
+    global stdout, stderr
+    
+    stdout = sys.stdout
+    stderr = sys.stderr
+    sys.stdout = open(os.devnull, 'w')
+    sys.stderr = open(os.devnull, 'w')
+
+
 def main():
+    redirect_stdio()
     app = QApplication([])
 
     if len(sys.argv) < 2:
