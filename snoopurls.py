@@ -31,7 +31,7 @@ def parse_arguments():
                         help='Use a specified port.')
 
     parser.add_argument('-i', '--interface', nargs=1, action='store',
-                        required=False, default="eth1",
+                        required=False, default="eth0",
                         help='Interface to store variables')
 
     return parser.parse_args()
@@ -81,7 +81,7 @@ def main():
 
     while True:
         line = p.stdout.readline()
-        if line[0] == 'T':
+        if len(line) > 0 and line[0] == 'T':
             parse_line(line)
             sys.stdout.flush()
 
