@@ -49,6 +49,7 @@ import binascii
 import hashlib
 import string
 import time
+import sys
 import os
 import re
 import zc.lockfile
@@ -158,12 +159,12 @@ class Datafile:
         self.filenames = set()
         self.hash_links = dict() # mapping of hashes to a tupple of (date, set of links).
 
-        fp = open(datafilename, 'r')
+        self.datafilefp = fp = open(datafilename, 'r')
         for line in fp:
             if line.startswith("COLLISION"):
                 # Collision match record.
                 # format is: COLLISION <linkname> <r>
-                m = re.match("COLLISION +(.+) +([0-9]+)", line)
+                m = re.match(r"^COLLISION +(.+) +([0-9]+)$", line)
                 linkname = m.group(1)
                 r = int(m.group(2))
                 self.collisions[linkname] = r
@@ -171,24 +172,24 @@ class Datafile:
             elif line.startswith("LINK"):
                 # Link record.
                 # format is: LINK <hash> <link>
-                m = re.match("LINK +([0-9a-fA-F]+ [0-9]+) +(.+)", line)
+                m = re.match(r"^LINK +([0-9a-fA-F]+ [0-9]+) +(.+)$", line)
                 h = Hash.FromString(m.group(1))
                 link = m.group(2)
                 t, links = self.hash_links[h]
                 links.add(link)
                 continue
             else:
-                m = re.match("([0-9a-fA-F]+ [0-9]+) +([0-9]+) +(.+)", line)
+                m = re.match(r"^([0-9a-fA-F]+ [0-9]+) +([0-9]+) +(.+)$", line)
                 if m is not None:
                     # file record 
                     # format is: <hash> <time> <filename>
                     h = Hash.FromString(m.group(1))
                     t = int(m.group(2))
-                    file = m.group(3) 
-                    self.filenames.add(file)
+                    filename = m.group(3) 
+                    self.filenames.add(filename)
                     self.hash_links[h] = (t, set())
                     continue;
-                m = re.match(r"(.+?)\s*=\s*(.+)", line)
+                m = re.match(r"^(.+?)\s*=\s*(.+)$", line)
                 if m is not None:
                     # config parameter
                     # format is: <key> = <value>
@@ -243,6 +244,7 @@ class Datafile:
         self.hash_links[h] = self._cache
         # append to datafile
         self.datafilefp.write("%s %d %s\n" % (h, intt, filename))
+        self.datafilefp.flush()
 
 
     def add_link(self, h, linkname):
@@ -251,6 +253,7 @@ class Datafile:
         links.add(linkname)
         
         self.datafilefp.write("LINK %s %s\n" % (h, linkname))
+        self.datafilefp.flush()
 
 
     def get_links(self, h):
@@ -289,6 +292,7 @@ class Datafile:
     def set_linkname_collision(self, linkname, r):
         """ Sets the r value of a given linkname collision in the datafile."""
         self.datafilefp.write("COLLISION %s %d\n" %(linkname, r))
+        self.datafilefp.flush()
         self.collisions[linkname] = r
 
 
@@ -404,14 +408,20 @@ def create_recent_directories(name, format, tdiff):
     """
     t = time.localtime(time.time() - tdiff)
     target = create_directory(format, t)
-    dir = os.path.join(datafile.config['target'], name)
+    d = os.path.join(datafile.config['target'], name)
 
-    if os.path.exists(dir):
-        if os.path.realpath(dir) is not dir:
-            os.remove(dir)
-            os.symlink(target, dir)
+    if os.path.exists(d):
+        if os.path.realpath(d) is not d:
+            os.remove(d)
+            os.symlink(target, d)
     else:
-        os.symlink(target, dir)
+        try:
+            os.symlink(target, d)
+            # ::BUGFIX os.path.exixts fails if the link exists ::
+            # :::but the target does not.::
+        except OSError:
+            os.remove(d)
+            create_recent_directories(name, format, tdiff)
 
 
 def create_directory(format, t):
@@ -494,13 +504,17 @@ def check_file(filename, t=None):
         filename = os.path.abspath(filename)
     
         if datafile.filename_is_unique(filename):
-            # The file may be new, check its hash 
-            h = Hash.FromFile(filename)
-            if datafile.hash_exists(h):
-                # The file has been moved or renamed.
-                renamed_file(filename, h)
-            else:
-                new_file(filename, h, t)
+            # The file may be new, check its hash
+            try:
+                h = Hash.FromFile(filename)
+                if datafile.hash_exists(h):
+                    # The file has been moved or renamed.
+                    renamed_file(filename, h)
+                else:
+                    new_file(filename, h, t)
+            except IOError as e:
+                sys.stderr.write(unicode(e))
+                sys.stderr.write("\n")
 
 
 def main():
@@ -535,7 +549,6 @@ def main():
     create_recent_directories('This week', 'week/%Y-%U', 0)
     create_recent_directories('Last week', 'week/%Y-%U', 7*24*60*60)
     create_recent_directories('This month', 'month/%Y-%m', 0)
-    
 
 if __name__ == "__main__":
     main()
