@@ -16,6 +16,7 @@ from PyQt4.QtNetwork import QNetworkProxy, QNetworkCookie, QNetworkCookieJar
 from PyQt4.QtWebKit import QWebPage
 
 TIMEOUT_MSECS = 5 * 60 * 1000
+WAIT_MSECS = 5 * 1000
 
 #::SOURCE http://stackoverflow.com/questions/5423013/pyqt-how-to-use-qwebpage-with-an-anonimous-proxy/5564898#5564898::
 def set_proxy(proxy):
@@ -33,7 +34,6 @@ def set_proxy(proxy):
             proxy_url.password()))
 if 'HTTP_PROXY' in os.environ:
     set_proxy(os.environ['HTTP_PROXY'])
-
 
 #::KUDOS Tudor Barbu <ul.enatom@uaim> ::
 #::: http://blog.motane.lu/2009/07/07/downloading-a-pages-content-with-python-and-webkit/ ::
@@ -62,9 +62,12 @@ class Crawler( QWebPage ):
         cookiejar.setAllCookies(cookies)
         self.networkAccessManager().setCookieJar(cookiejar)
 
-
     def _finished_loading( self, result ):
-        """ When done loading, pring the result. """
+        """ When done loading, activate the waiting timer. """
+        QTimer.singleShot(WAIT_MSECS, self._print_html)
+        
+    def _print_html(self):
+        """ prints the html to stdout, then exists the program. """
         stdout.write(unicode(self.mainFrame().toHtml()))
         sys.exit(0)
 
