@@ -7,7 +7,7 @@ import os
 import sys
 import signal
 import subprocess
-from urlparse import urlparse
+from urlparse import urlparse, urljoin
 from httplib import HTTPConnection
 
 from PyQt4.QtCore import QUrl, QTimer, SIGNAL
@@ -82,14 +82,16 @@ def test_url(url):
     try:
         p = urlparse(url)
         conn = HTTPConnection(p.netloc, p.port)
-        conn.request('HEAD', p.path)
+        conn.request('HEAD', p.path + '?' + p.query)
         res = conn.getresponse()
     except Exception as e:
         stdout.write("000: %s\n" % e)
         sys.exit(1)
 
     if res.status > 300 and res.status < 399:
-        test_url(res.getheader('location'))
+        loc = res.getheader('location')
+        loc = urljoin(url, loc)
+        test_url(loc)
         return
     if res.status < 200 or res.status > 399:
         stdout.write("%d: %s\n" % (res.status, res.reason))
