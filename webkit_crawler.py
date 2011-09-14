@@ -5,6 +5,7 @@
 
 import os
 import sys
+import codecs
 import signal
 import subprocess
 from urlparse import urlparse, urljoin
@@ -17,6 +18,7 @@ from PyQt4.QtWebKit import QWebPage
 
 TIMEOUT_MSECS = 5 * 60 * 1000
 WAIT_MSECS = 5 * 1000
+
 
 #::SOURCE http://stackoverflow.com/questions/5423013/pyqt-how-to-use-qwebpage-with-an-anonimous-proxy/5564898#5564898::
 def set_proxy(proxy):
@@ -73,7 +75,7 @@ class Crawler( QWebPage ):
 
     def _timeout(self):
         """ Called if the webpage has timed out."""
-        stdout.write("000: Timeout\n")
+        stderr.write("000: Timeout\n")
         sys.exit(1)
 
 
@@ -85,7 +87,7 @@ def test_url(url):
         conn.request('HEAD', p.path + '?' + p.query)
         res = conn.getresponse()
     except Exception as e:
-        stdout.write("000: %s\n" % e)
+        stderr.write("000: %s\n" % e)
         sys.exit(1)
 
     if res.status > 300 and res.status < 399:
@@ -94,7 +96,7 @@ def test_url(url):
         test_url(loc)
         return
     if res.status < 200 or res.status > 399:
-        stdout.write("%d: %s\n" % (res.status, res.reason))
+        stderr.write("%d: %s\n" % (res.status, res.reason))
         sys.exit(1)
 
 
