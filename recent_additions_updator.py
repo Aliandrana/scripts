@@ -116,7 +116,7 @@ class Hash:
 
     def __str__(self):
         """ Converts a hash object to a string.
-            
+
             FORMAT: <partial shasum> <size>
         """
         return "%s %d" % (self.partial_shasum_hex, self.size)
