@@ -392,11 +392,8 @@ def renamed_file(newfilename, h=None):
         t = datafile.get_time(h)
         # Remove the old links.
         for link in datafile.get_links(h):
-            # for some reason os.path.exists fails on a broken symlink.
-            try:
+            if os.path.lexists(link):
                 os.remove(link)
-            except:
-                pass
         # get the time of the origional link, otherwise
         # it may end up as today
         new_file(newfilename, h, t)
@@ -410,7 +407,7 @@ def create_recent_directories(name, format, tdiff):
     target = create_directory(format, t)
     d = os.path.join(datafile.config['target'], name)
 
-    if os.path.exists(d):
+    if os.path.lexists(d):
         if os.path.realpath(d) is not d:
             os.remove(d)
             os.symlink(target, d)
