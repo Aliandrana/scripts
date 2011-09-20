@@ -2,4 +2,4 @@
 *.swp
 fluxbb/*.zip
 fluxbb/*/readme.txt
-
+build.sh
