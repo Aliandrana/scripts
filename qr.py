@@ -31,7 +31,7 @@ def get_xclip(selection='primary'):
 
     stdout, stderr = p.communicate()
 
-    return unicode(stdout)
+    return stdout.decode('utf-8')
 
 
 def build_qrcode(string):
@@ -48,7 +48,7 @@ def build_qrcode(string):
             stdout=subprocess.PIPE,
     )
 
-    p.stdin.write(string)
+    p.stdin.write(string.encode('utf-8'))
     p.stdin.close()
 
     while True:
@@ -70,14 +70,17 @@ def build_qrcode(string):
 string = get_xclip()
 
 root = tk.Tk()
+root.title("QR barcode")
 
 pil_image = build_qrcode(string)
 image = ImageTk.PhotoImage(pil_image)
 
-root.geometry("{}x{}".format(*pil_image.size))
-
-button = tk.Button(image=image, command=root.quit)
+button = tk.Button(root, image=image, command=root.quit)
 button.image = image #keep a reference
 button.pack()
+
+# This forces a tiled window manager to treat is as a floating item
+root.geometry("{}x{}".format(*pil_image.size))
+root.resizable(False, False)
 
 root.mainloop()
