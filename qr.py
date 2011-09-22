@@ -67,20 +67,37 @@ def build_qrcode(string):
     return image.close()
 
 
-string = get_xclip()
+def display_qr_from_string(string):
+    """
+    Displays a new Tk window displaying a QR code of the given button.
 
-root = tk.Tk()
-root.title("QR barcode")
+    This function exits after the window is closed or the barcode is clicked.
+    """
+    root = tk.Tk()
+    root.title("QR barcode")
 
-pil_image = build_qrcode(string)
-image = ImageTk.PhotoImage(pil_image)
+    pil_image = build_qrcode(string)
+    image = ImageTk.PhotoImage(pil_image)
 
-button = tk.Button(root, image=image, command=root.quit)
-button.image = image #keep a reference
-button.pack()
+    button = tk.Button(root, image=image, command=root.quit)
+    button.image = image #keep a reference
+    button.pack()
 
-# This forces a tiled window manager to treat is as a floating item
-root.geometry("{}x{}".format(*pil_image.size))
-root.resizable(False, False)
+    # This forces a tiled window manager to treat is as a floating item
+    root.geometry("{}x{}".format(*pil_image.size))
+    root.resizable(False, False)
 
-root.mainloop()
+    root.mainloop()
+
+
+def main():
+    """
+    Handles program arguments, displays the QR code for the given options/data.
+    """
+    string = get_xclip()
+    display_qr_from_string(string)
+
+
+if __name__ == '__main__':
+    main()
+
