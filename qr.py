@@ -10,6 +10,7 @@ This program will use the program ``qrencode`` to build the barcode and ``Tk`` t
 """
 
 import os
+import sys
 import argparse
 import subprocess
 
@@ -31,7 +32,23 @@ def get_xclip(selection='primary'):
 
     stdout, stderr = p.communicate()
 
-    return stdout.decode('utf-8')
+    return stdout
+
+
+def read_file(filename):
+    """
+    Reads a given file (with '-' being stdin) and outputs its contents.
+    """
+    if filename == '-':
+        fp = sys.stdin
+    else:
+        fp = open(filename, 'rb')
+
+    string = fp.read()
+
+    fp.close()
+
+    return string
 
 
 def build_qrcode(string):
@@ -40,6 +57,9 @@ def build_qrcode(string):
 
     Returns a PIL image of the QR code.
     """
+    #if len(string) == 0:
+    #    raise ValueError('Invalid string')
+
     image = ImageFile.Parser()
 
     p = subprocess.Popen(
@@ -48,7 +68,7 @@ def build_qrcode(string):
             stdout=subprocess.PIPE,
     )
 
-    p.stdin.write(string.encode('utf-8'))
+    p.stdin.write(string)
     p.stdin.close()
 
     while True:
@@ -62,7 +82,7 @@ def build_qrcode(string):
     p.wait()
 
     if p.returncode != 0:
-        raise RuntimeError('qrencode returned "{}"'.format(ret))
+        raise RuntimeError('qrencode returned "{}"'.format(p.returncode))
 
     return image.close()
 
@@ -94,7 +114,27 @@ def main():
     """
     Handles program arguments, displays the QR code for the given options/data.
     """
-    string = get_xclip()
+    parser = argparse.ArgumentParser(description='Clipboard QR code displayer.')
+
+    group = parser.add_mutually_exclusive_group(required=False)
+
+    group.add_argument('-c', '--clipboard',
+            action='store_true', default=False, 
+            help='Reads from the XA_CLIPBOARD instead of XA_PRIMARY'
+    )
+    group.add_argument('filename', nargs='?', default=None,
+            help='Read from file (- is stdin).'
+    )
+    
+    options = parser.parse_args()
+
+    if options.clipboard:
+        string = get_xclip('clipboard')
+    elif options.filename:
+        string = read_file(options.filename)
+    else:
+        string = get_xclip()
+
     display_qr_from_string(string)
 
 
