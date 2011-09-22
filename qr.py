@@ -18,6 +18,21 @@ from PIL import ImageFile, ImageTk
 
 import Tkinter as tk
 
+def get_xclip(selection='primary'):
+    """
+    Returns the value of the xclipboard using the program xclip.
+
+    The optional *selection* argument describes the X selection to use.
+    """
+    p = subprocess.Popen(
+            ('xclip', '-o', '-selection', selection),
+            stdout=subprocess.PIPE,
+    )
+
+    stdout, stderr = p.communicate()
+
+    return unicode(stdout)
+
 
 def build_qrcode(string):
     """
@@ -52,9 +67,11 @@ def build_qrcode(string):
     return image.close()
 
 
+string = get_xclip()
+
 root = tk.Tk()
 
-pil_image = build_qrcode("Hello World!")
+pil_image = build_qrcode(string)
 image = ImageTk.PhotoImage(pil_image)
 
 root.geometry("{}x{}".format(*pil_image.size))
