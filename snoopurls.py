@@ -26,11 +26,11 @@ def parse_arguments():
                         required=False, default=False,
                         help='Be verbose.')
 
-    parser.add_argument('-p', '--port', nargs=1, type=int,
+    parser.add_argument('-p', '--port', type=int,
                         required=False, default=80,
                         help='Use a specified port.')
 
-    parser.add_argument('-i', '--interface', nargs=1, action='store',
+    parser.add_argument('-i', '--interface', action='store',
                         required=False, default="eth0",
                         help='Interface to store variables')
 
